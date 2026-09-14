@@ -17,12 +17,12 @@ pnpm dev
 
 ## 三分钟演示路径
 
-1. 在首页选择“售前人员 → FDE”，选择 `Codex（本地）`，在 `~/.codex/agents/sales/memory/` 的 Mock 目录勾选两份中文记忆；再从 `~/Desktop/ContextBridge Demo Inputs/` 添加一份中文知识文件。也可点击“载入三份 Demo 文件”。
+1. 在首页选择“售前人员 → FDE”，选择 `Codex（本地）`，在 `~/.codex/agents/sales/memory/` 的 Mock 目录勾选两份中文记忆；再从 `~/Desktop/ContextBridge Demo Inputs/` 添加一份中文知识文件。
 2. 输入转换要求，生成交接任务卡；从任务卡点击“开始交接”。
 3. 对照左侧售前原话、中间的治理决策和右侧 FDE 行动语言；重点点开上线预估、主观判断和敏感凭据。
 4. 处理 3 条人工确认项。
 5. 将草案交给 FDE；检查“范围、风险、首周动作”，并任选一项编辑、填写理由。
-6. 发布交接包，展示接手验证题和审计记录。
+6. 发布交接包，展示接手验证题和审计记录；完整 Markdown 交接文件会保存到桌面。
 
 ## 可选：Live Agent
 

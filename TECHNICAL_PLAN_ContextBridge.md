@@ -66,7 +66,7 @@ contextbridge-poc/
 └── tests/engine.test.ts
 ```
 
-本次交付已将仓库中的同名文件复制到 `~/Desktop/ContextBridge Demo Inputs/`。在另一台电脑上运行时，可直接从 `demo-inputs/` 复制这三个虚构样例；两份记忆由界面中的 Codex Mock 目录提供，知识文件可在桌面实际选择。MVP 同时保留“载入三份 Demo 文件”快捷按钮，便于稳定录屏。
+本次交付已将仓库中的同名文件复制到 `~/Desktop/ContextBridge Demo Inputs/`。在另一台电脑上运行时，可直接从 `demo-inputs/` 复制这三个虚构样例；两份记忆由界面中的 Codex Mock 目录提供，知识文件可在桌面实际选择。
 
 ### 3.3 环境变量（可选）
 
@@ -145,7 +145,6 @@ target-check -- required checks --> published
 - 选择 Codex 后显示 `~/.codex/agents/sales/memory/` 及两份可勾选的中文 Mock 记忆；它们的 `origin` 为 `agent_memory_path`；
 - 唯一隐藏 input 为 `knowledgeInputRef`，`multiple=false`，限定 `.md,.txt,.json`；`onChange` 用 `file.text()` 转为 `SelectedFile`，标记 `desktop_upload`；
 - 显示文件名、大小、来源、移除按钮；不将文件上传到网络；
-- “载入三份 Demo 文件”选择 Codex、两份记忆和一份内置知识 Fixture，给录屏备用；
 - Prompt 受控输入、500 字限制，任务卡展示前 90 字。
 
 ### 5.3 工作台
@@ -228,10 +227,10 @@ runReplay(task): {
 
 1. 在首页选择 Codex，确认 `~/.codex/agents/sales/memory/` 显示两份记忆并勾选；
 2. 从 `~/Desktop/ContextBridge Demo Inputs/` 通过文件选择器添加一份知识文件；
-3. 用“一键载入三份 Demo 文件”完成演示组合；
-4. 生成任务卡后才出现“开始交接”；
-5. 用售前 → FDE 主路径完成源/目标语言对照；
-6. 切换到 CSM → 运维并确认任务卡角色变化；
+3. 生成任务卡后才出现“开始交接”；
+4. 用售前 → FDE 主路径完成源/目标语言对照；
+5. 切换到 CSM → 运维并确认任务卡角色变化；
+6. 发布后确认完整交接 Markdown 已生成到桌面；
 7. 完整录屏不超过 3 分钟。
 
 ## 9. 实施顺序与复杂度控制

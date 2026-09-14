@@ -80,6 +80,10 @@ OPENAI_MODEL=
 
 模型 Key 仅由 `server/index.ts` 读取；禁止使用 `VITE_*` 暴露给前端，也不提交 `.env`。
 
+### 3.4 发布文件位置
+
+发布交接包时，本地服务使用 Node.js 的 `os.homedir()` 动态取得**运行 Demo 的当前用户**主目录，再写入其 `Desktop/`。路径未写死为任何特定用户名；不同用户会分别写入自己的 `~/Desktop/ContextBridge_...md`。
+
 ## 4. 数据模型
 
 ```ts

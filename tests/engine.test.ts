@@ -3,7 +3,7 @@ import { demoKnowledgeFiles, demoMemoryFiles, demoPrompt } from '../src/data';
 import { buildBrief, buildItems, isTaskValid } from '../src/engine';
 import type { TransferTask } from '../src/types';
 
-const task: TransferTask = { id: 'test', sourceRole: 'sales', targetRole: 'fde', memoryFiles: demoMemoryFiles, knowledgeFiles: demoKnowledgeFiles, prompt: demoPrompt, status: 'ready' };
+const task: TransferTask = { id: 'test', sourceRole: 'sales', targetRole: 'fde', selectedAgent: 'codex', memoryFiles: demoMemoryFiles, knowledgeFiles: demoKnowledgeFiles, prompt: demoPrompt, status: 'ready' };
 
 describe('ContextBridge task configuration and governance', () => {
   it('requires a configured source/target, local memory, knowledge and prompt before generating a task card', () => {
@@ -15,7 +15,7 @@ describe('ContextBridge task configuration and governance', () => {
 
   it('converts the demo files into role-specific evidence while keeping unsafe content out of the target brief', () => {
     const items = buildItems(task);
-    expect(items.filter((item) => item.action === 'review')).toHaveLength(4);
+    expect(items.filter((item) => item.action === 'review')).toHaveLength(3);
     expect(items.filter((item) => item.action === 'block')).toHaveLength(2);
     const serialized = JSON.stringify(buildBrief(task, {}, []));
     expect(serialized).not.toContain('atlas-demo-secret');

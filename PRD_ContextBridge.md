@@ -1,4 +1,6 @@
-# ContextBridge POC PRD（v2）
+# ContextBridge POC PRD（v3）
+
+> **v3 收敛说明（本说明优先于下文旧示意）**：本次 Demo 只使用三份中文 Mock 文件：两份来自 `Codex` Mock 记忆路径的记忆文件，以及一份通过本地文件选择器添加的知识文件。记忆不再由用户从电脑上传；用户先选择 Agent（录屏选择 Codex），再在 `~/.codex/agents/sales/memory/` 的 Mock 路径中勾选记忆文件。知识文件仍可从电脑选择。所有早期“三份知识、五份文件、选择本地记忆文件”的描述均由本说明替代。
 
 ## 1. 文档目的
 
@@ -24,7 +26,7 @@ ContextBridge 是一个跨角色上下文转换产品：用户先自行配置一
 ### 3.1 必须实现
 
 - 可配置源角色和目标角色；
-- 可从本地 Agent 的记忆文件选择输入，并显式表现为 `Codex Local Agent / Memory`；
+- 可选择 Agent，并从其记忆存储路径选择输入；录屏用 `Codex / ~/.codex/agents/sales/memory/` Mock 目录；
 - 可从本地电脑上传知识文件；
 - 可输入本次转换要求 Prompt；
 - 配置完成后生成一张可编辑的交接任务卡；只有从任务卡点击“开始交接”才进入工作台；
@@ -69,7 +71,7 @@ POC 为每个角色展示职责说明；完整且经过设计的转换样例为�
 
 | 阶段 | 用户动作 | 产品响应 | 用户应感受到的价值 |
 |---|---|---|---|
-| 1. 配置 | 选择源/目标角色、添加本地记忆和知识文件、输入 Prompt | 校验配置完整性 | 这是一次可定义的交接任务，不是固定 Demo |
+| 1. 配置 | 选择源/目标角色、选择 Agent 和记忆路径文件、添加知识文件、输入 Prompt | 校验配置完整性 | 这是一次可定义的交接任务，不是固定 Demo |
 | 2. 生成任务 | 点击“生成交接任务卡” | 卡片总结角色、文件数、Prompt 和风险提示 | 我知道本次 Agent 要做什么、将使用什么输入 |
 | 3. 开始交接 | 点击卡片“开始交接” | 进入对照工作台 | 任务明确后才开始运行 |
 | 4. 阅读源记忆 | 查看售前原话和本地文件来源 | 高亮口头承诺、感受、商业敏感、未补齐信息 | 源资料天然混乱且偏售前视角 |
@@ -81,12 +83,12 @@ POC 为每个角色展示职责说明；完整且经过设计的转换样例为�
 
 | 时间 | 演示动作 | 核心信息 |
 |---|---|---|
-| 0:00–0:25 | 在配置器选择“售前人员 → FDE”，点击“载入桌面 Demo 文件” | 角色和输入可配置，文件来自本地 |
-| 0:25–0:42 | 展示两份记忆、三份知识文件，输入要求 Prompt，生成任务卡 | 任务卡在配置后才出现 |
+| 0:00–0:25 | 在配置器选择“售前人员 → FDE”，选择 Codex 并展开其 Mock 记忆路径 | Agent 记忆不是普通本地文件上传 |
+| 0:25–0:42 | 勾选两份记忆、添加一份知识文件，输入要求 Prompt，生成任务卡 | 仅三份短中文文件，差异清晰 |
 | 0:42–0:55 | 点击“开始交接” | 明确执行边界 |
 | 0:55–1:35 | 左侧读售前的混乱笔记；中间点开“10/06 上线”“我感觉 Champion 没信心”“client secret” | 销售语言不等于交付事实，敏感内容被阻断 |
 | 1:35–2:05 | 在右侧展示 FDE Brief：范围、技术依赖、风险、首周计划 | 同一证据被翻译为交付语言 |
-| 2:05–2:30 | 处理 4 项人工确认 | 高影响承诺不交给 Agent 自动决定 |
+| 2:05–2:30 | 处理 3 项人工确认（上线日期、内网部署、主观判断） | 高影响承诺不交给 Agent 自动决定 |
 | 2:30–2:50 | FDE 修改上线条目、填写原因、确认三块 | 目标用户可纠正结果 |
 | 2:50–3:00 | 发布，展示接手验证题 | 转换完成不等于可承诺上线 |
 
@@ -101,16 +103,14 @@ POC 为每个角色展示职责说明；完整且经过设计的转换样例为�
 │ 新建交接任务                                                               │
 │ [源角色：售前人员 v]  →  [目标角色：FDE v]                                │
 │                                                                            │
-│ 01 Local Agent Memory                                                      │
-│ Codex Local Agent · ~/Desktop/ContextBridge Demo Inputs                   │
-│ [选择记忆文件] [载入桌面 Demo 文件]                                       │
-│  ✓ codex_sales_memory_chenyu.md       售前工作记忆 · 1.8 KB              │
-│  ✓ codex_csm_memory_hanlin.md         客户成功跟进记忆 · 1.2 KB          │
+│ 01 Agent Memory                                                            │
+│ [Agent：Codex（本地）v]                                                    │
+│ Mock Memory Path · ~/.codex/agents/sales/memory/                           │
+│ ☑ 售前工作记忆_陈宇.md  ☑ 售前客户跟进_陈宇.md                            │
 │                                                                            │
 │ 02 Knowledge Files                                                          │
 │ [从本地电脑添加知识文件]                                                    │
-│  ✓ customer_discovery_notes.md  ✓ solution_scope_and_commitment.md       │
-│  ✓ technical_readiness_questionnaire.md                                    │
+│  ✓ 项目交接知识_澄澈零售.md                                                │
 │                                                                            │
 │ 03 转换要求                                                                 │
 │ [把售前叙述转换为 FDE 可启动的交付 Brief；区分确认事实、待确认项、       │
@@ -125,8 +125,8 @@ POC 为每个角色展示职责说明；完整且经过设计的转换样例为�
 |---|---|---|
 | 源角色 | 单选下拉/卡片 | 至少提供售前、客户成功、一线支持；角色改变会更新说明。 |
 | 目标角色 | 单选下拉/卡片 | 至少提供 FDE、运维、客户成功；不能与源角色相同。 |
-| Local Agent Memory | 多文件选择 | 使用浏览器 File API 读取；文件卡必须显示“Codex Local Agent”与文件名，不伪装为在线数据。 |
-| Knowledge Files | 多文件上传 | 允许 `.md,.txt,.json`；显示文件名和大小；可移除。 |
+| Agent Memory | Agent + 路径勾选 | 先选择 Agent；Codex 以 Mock 目录呈现两个记忆文件，不调用或上传真实 Agent 数据。 |
+| Knowledge Files | 单文件上传 | 允许 `.md,.txt,.json`；显示文件名和大小；可移除。 |
 | Demo 文件 | 快捷载入 | 仅将内置 Fixture 写入当前表单状态；界面说明同名文件已放桌面，可用真实选择器替代。 |
 | Prompt | 多行文本，必填 | 最多 500 字；显示字符数；此 Demo 将 Prompt 展示在任务卡和审计记录中。 |
 | 生成任务卡 | 校验后可点击 | 必须已选择角色、至少 1 份记忆、1 份知识和非空 Prompt。 |
@@ -138,7 +138,7 @@ POC 为每个角色展示职责说明；完整且经过设计的转换样例为�
 ```
 ┌────────────────────── 待执行的交接任务 ──────────────────────┐
 │ 售前人员  →  FDE       澄澈零售集团 / AtlasFlow 试点          │
-│ 2 份 Agent Memory · 3 份 Knowledge · 4 条人工边界             │
+│ Codex 记忆路径 · 2 份记忆 · 1 份 Knowledge · 3 条人工边界     │
 │ 要求：把售前叙述转换为 FDE 可启动的交付 Brief…                │
 │ [编辑配置]                                      [开始交接 →]  │
 └───────────────────────────────────────────────────────────────┘
@@ -216,15 +216,13 @@ FDE 检查不需要新页面：在右栏进入检查态后，范围、风险、�
 
 项目仓库保存一份受版本控制的原件：`demo-inputs/`。
 
-同一批文件复制到用户桌面：`~/Desktop/ContextBridge Demo Inputs/`，以便录屏时通过系统文件选择器实际选择。所有数据都是虚构的，不连接任何真实企业系统。
+知识文件复制到用户桌面：`~/Desktop/ContextBridge Demo Inputs/`，以便录屏时通过系统文件选择器实际选择；两份记忆文件在产品内模拟为 Codex 记忆路径下的可勾选文件。所有数据都是虚构的，不连接任何真实企业系统。
 
 | 文件 | 选择入口 | 内容目的 |
 |---|---|---|
-| `codex_sales_memory_chenyu.md` | Local Agent Memory | 售前口吻：机会、客户感受、非正式上线预估、伪凭据、商业敏感。 |
-| `codex_csm_memory_hanlin.md` | Local Agent Memory | CSM 口吻：采用风险、用户培训、客户沟通偏好。 |
-| `customer_discovery_notes.md` | Knowledge Files | 客户已确认范围、业务目标、会议时间。 |
-| `solution_scope_and_commitment.md` | Knowledge Files | 售前方案边界与不应视为承诺的表述。 |
-| `technical_readiness_questionnaire.md` | Knowledge Files | 交付依赖缺口与责任人缺口。 |
+| `售前工作记忆_陈宇.md` | Codex Mock Memory Path | 售前口吻：价值、非正式上线预估、内网判断、伪凭据、商业敏感。 |
+| `售前客户跟进_陈宇.md` | Codex Mock Memory Path | 售前跟进线索：预算决策人偏好、5 家门店试点和未定验收样本。 |
+| `项目交接知识_澄澈零售.md` | Knowledge Files | 已确认范围、业务目标、FDE 依赖缺口、排期边界。 |
 
 ### 7.2 样例对照（必须在 UI 中可见）
 
@@ -290,7 +288,7 @@ Any config change after ready → draft and invalidates task card.
 
 - 已选择不同的源/目标角色；
 - 至少 1 份记忆、1 份知识、非空 Prompt；
-- 4 条默认人工确认全部处理；
+- 3 条默认人工确认（上线日期、内网部署、主观判断）全部处理；
 - FDE 完成范围、风险、首周动作三项检查；
 - 任何 FDE 编辑均有理由。
 
@@ -300,7 +298,7 @@ Any config change after ready → draft and invalidates task card.
 |---|---|---|
 | AC-01 | 初次打开首页 | 只出现配置器，不出现预置交接任务卡或开始按钮。 |
 | AC-02 | 填完配置 | 才能生成任务卡；角色、文件数、Prompt 摘要正确。 |
-| AC-03 | 从桌面选 `.md` | 文件名、类型、`Codex Local Agent` 或 `Local Knowledge` 标签正确；FileReader 内容可见。 |
+| AC-03 | 选择 Codex 和其 Mock 记忆路径；从桌面选一份知识 `.md` | 记忆文件显示 `Codex · ~/.codex/agents/sales/memory/`；知识文件显示本地上传标签，内容均可见。 |
 | AC-04 | 点击开始交接 | 进入任务快照对应的工作台。 |
 | AC-05 | 查看工作台 | 源栏是售前原话，目标栏是 FDE 依赖/风险/动作，而非同义摘要。 |
 | AC-06 | 查看 secret/价格 | 源栏可见测试数据，但目标 Brief 和发布页不含原文。 |

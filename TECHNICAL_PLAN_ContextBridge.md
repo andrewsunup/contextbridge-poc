@@ -1,15 +1,18 @@
-# ContextBridge POC 技术方案（v2）
+# ContextBridge POC 技术方案（v3）
+
+> **v3 输入收敛**：录屏固定使用 3 份中文 Mock 文件：两份通过“选择 Agent → Codex Mock 记忆路径”勾选的记忆，及一份由系统文件选择器添加的本地知识文件。记忆选择不调用真实 Codex 内部数据，也不使用浏览器上传；`~/.codex/agents/sales/memory/` 是明确标注的 Mock 路径。本文中任何旧的“五份文件、记忆 FileReader、多份知识文件”表述均以此为准。
 
 ## 1. 方案结论
 
-本次 MVP 使用 **React + Vite + TypeScript + 原生 CSS**。默认采用完全本地、确定性的 `Demo Replay`：从用户在浏览器选中的本地文件读取文本，按预置治理规则生成可验证的交接结果。无需 API Key、无需网络、无需数据库。
+本次 MVP 使用 **React + Vite + TypeScript + 原生 CSS**。默认采用完全本地、确定性的 `Demo Replay`：从选择的 Agent Mock 记忆与本地知识文件读取文本，按预置治理规则生成可验证的交接结果。无需 API Key、无需网络、无需数据库。
 
 可选的 Express 服务仅提供健康检查和后续 Live Agent 扩展入口；录屏主路径不依赖它。这样既能演示“文件和 Prompt 可配置”，也能保证结果稳定、可测试、可在个人电脑运行。
 
 ```
 Browser (React)
-  ├─ Task Composer：角色、File input、Prompt、任务卡
-  ├─ FileReader：读取用户本地 .md/.txt/.json
+  ├─ Task Composer：角色、Agent 记忆路径、单份知识 File input、Prompt、任务卡
+  ├─ Agent Mock catalog：模拟读取 Codex 记忆目录
+  ├─ FileReader：只读取用户本地知识 .md/.txt/.json
   ├─ Demo Replay engine：规则匹配、角色化改写、审阅状态
   └─ UI：源语言 / Bridge 决策 / 目标语言并排
 
@@ -22,9 +25,9 @@ Express (optional)
 
 | 决策 | 选择 | 原因 |
 |---|---|---|
-| 本地文件 | 浏览器 `<input type=file>` + FileReader | 不需要后端上传、无权限复杂度，实际可从桌面选择。 |
-| Agent Memory 识别 | 明确区块 `Codex Local Agent / Memory` | POC 诚实展示为本地 Agent 文件选择，不伪装成已接入 Codex 内部存储。 |
-| 知识文件 | 同样用 FileReader | 本期只需证明可从本机选择资料；不做知识库。 |
+| Agent 记忆 | 选择 Agent → Mock 路径目录 → 勾选文件 | 体现“从 Agent 的工作记忆中选取”，又不声称已读取真实 Codex 数据。 |
+| 本地知识文件 | 浏览器 `<input type=file>` + FileReader，限制一份 | 不需要后端上传、无权限复杂度，实际可从桌面选择。 |
+| Codex 目录 | `~/.codex/agents/sales/memory/` 的静态目录样式 | 录屏清楚表达产品连接模式；真实接入留给上线阶段的授权连接器。 |
 | 文件格式 | `.md,.txt,.json` | 足够承载高质量 Mock，避免 PDF/OCR/Office 解析。 |
 | 转换 | 规则驱动 Replay | 录像稳定，能准确展示人工边界和前后差异。 |
 | 任务快照 | React state | 生成任务卡后冻结；改配置即作废，无需持久化。 |
@@ -50,11 +53,9 @@ pnpm dev
 ```text
 contextbridge-poc/
 ├── demo-inputs/                   # 受版本控制的桌面演示文件原件
-│   ├── codex_sales_memory_chenyu.md
-│   ├── codex_csm_memory_hanlin.md
-│   ├── customer_discovery_notes.md
-│   ├── solution_scope_and_commitment.md
-│   └── technical_readiness_questionnaire.md
+│   ├── 售前工作记忆_陈宇.md
+│   ├── 售前客户跟进_陈宇.md
+│   └── 项目交接知识_澄澈零售.md
 ├── src/
 │   ├── data.ts                    # 角色、内置 Fixture、转换证据
 │   ├── engine.ts                  # 规则、任务快照、Brief 组装
@@ -65,7 +66,7 @@ contextbridge-poc/
 └── tests/engine.test.ts
 ```
 
-本次交付已将仓库中的同名文件复制到 `~/Desktop/ContextBridge Demo Inputs/`。在另一台电脑上运行时，可直接从 `demo-inputs/` 复制这五个虚构样例；MVP 同时保留“载入桌面 Demo 文件”快捷按钮，录屏时可减少系统文件选择器操作。该按钮与桌面文件内容相同，且界面清楚标记为 Demo Fixture。
+本次交付已将仓库中的同名文件复制到 `~/Desktop/ContextBridge Demo Inputs/`。在另一台电脑上运行时，可直接从 `demo-inputs/` 复制这三个虚构样例；两份记忆由界面中的 Codex Mock 目录提供，知识文件可在桌面实际选择。MVP 同时保留“载入三份 Demo 文件”快捷按钮，便于稳定录屏。
 
 ### 3.3 环境变量（可选）
 
@@ -83,12 +84,13 @@ OPENAI_MODEL=
 
 ```ts
 type RoleId = 'sales' | 'csm' | 'support' | 'fde' | 'ops';
+type AgentId = 'codex' | 'cursor' | 'claude_code';
 
 type SelectedFile = {
   id: string;
   name: string;
   kind: 'agent_memory' | 'knowledge';
-  origin: 'codex_local_agent' | 'desktop_upload' | 'demo_fixture';
+  origin: 'agent_memory_path' | 'desktop_upload' | 'demo_fixture';
   pathLabel: string;
   content: string;
   size: number;
@@ -97,6 +99,7 @@ type SelectedFile = {
 type TaskDraft = {
   sourceRole?: RoleId;
   targetRole?: RoleId;
+  selectedAgent?: AgentId;
   memoryFiles: SelectedFile[];
   knowledgeFiles: SelectedFile[];
   prompt: string;
@@ -138,11 +141,11 @@ target-check -- required checks --> published
 ### 5.2 任务配置器
 
 - 源/目标角色用原生 `<select>` 实现，目标角色过滤与源相同的选项；
-- 两个隐藏 input：`memoryInputRef` 与 `knowledgeInputRef`，均 `multiple`，限定 `.md,.txt,.json`；
-- `onChange` 使用 `Promise.all(file.text())` 转成 `SelectedFile`；
-- 记忆文件的 `origin` 固定 `codex_local_agent`，Path label 写作 `Codex Local Agent · 本地已选择`；知识文件标记 `Local Knowledge · Desktop upload`；
+- Agent 下拉框展示 Codex、Cursor、Claude Code；本期只有 Codex 显示记忆目录；
+- 选择 Codex 后显示 `~/.codex/agents/sales/memory/` 及两份可勾选的中文 Mock 记忆；它们的 `origin` 为 `agent_memory_path`；
+- 唯一隐藏 input 为 `knowledgeInputRef`，`multiple=false`，限定 `.md,.txt,.json`；`onChange` 用 `file.text()` 转为 `SelectedFile`，标记 `desktop_upload`；
 - 显示文件名、大小、来源、移除按钮；不将文件上传到网络；
-- “载入桌面 Demo 文件”插入内置相同文本，origin 为 `demo_fixture`，给录屏备用；
+- “载入三份 Demo 文件”选择 Codex、两份记忆和一份内置知识 Fixture，给录屏备用；
 - Prompt 受控输入、500 字限制，任务卡展示前 90 字。
 
 ### 5.3 工作台
@@ -213,7 +216,7 @@ runReplay(task): {
 
 ### 8.1 单元测试
 
-- 选择 Desktop demo fixture 后生成 2 个 memory + 3 个 knowledge 文件；
+- 选择 Codex Mock 目录后可勾选 2 个 memory，桌面知识文件限制为 1 个；
 - 配置不完整时无法生成任务卡；
 - 配置变更使任务卡失效；
 - 10/06 只能为 review，不能自动变上线承诺；
@@ -223,12 +226,13 @@ runReplay(task): {
 
 ### 8.2 手工验收
 
-1. 从 `~/Desktop/ContextBridge Demo Inputs/` 通过文件选择器分别选择一个记忆和一个知识文件；
-2. 用“一键载入 Demo 文件”完成五文件演示组合；
-3. 生成任务卡后才出现“开始交接”；
-4. 用售前 → FDE 主路径完成源/目标语言对照；
-5. 切换到 CSM → 运维并确认任务卡角色变化；
-6. 完整录屏不超过 3 分钟。
+1. 在首页选择 Codex，确认 `~/.codex/agents/sales/memory/` 显示两份记忆并勾选；
+2. 从 `~/Desktop/ContextBridge Demo Inputs/` 通过文件选择器添加一份知识文件；
+3. 用“一键载入三份 Demo 文件”完成演示组合；
+4. 生成任务卡后才出现“开始交接”；
+5. 用售前 → FDE 主路径完成源/目标语言对照；
+6. 切换到 CSM → 运维并确认任务卡角色变化；
+7. 完整录屏不超过 3 分钟。
 
 ## 9. 实施顺序与复杂度控制
 

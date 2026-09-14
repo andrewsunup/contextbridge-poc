@@ -22,12 +22,11 @@ export function buildBrief(task: TransferTask, reviews: Record<string, ReviewCho
   const brief = structuredClone(baseBrief);
   const allFiles = [...task.memoryFiles, ...task.knowledgeFiles];
   const visibleText = allFiles.map((file) => file.content).join('\n');
-  if (!has(task.knowledgeFiles, '库存系统')) brief.scope = brief.scope.filter((line) => !line.includes('库存'));
+  if (!has(task.knowledgeFiles, '库存和收银')) brief.scope = brief.scope.filter((line) => !line.includes('库存'));
   if (!has(task.knowledgeFiles, 'Azure AD')) brief.dependencies = brief.dependencies.filter((line) => !line.includes('Azure AD'));
   if (reviews['M-02'] !== 'reference') brief.risks[0] = '上线日期仍待技术发现会确认；售前预估不作为交付承诺。';
-  if (reviews['M-03'] === 'signal') brief.risks.push('待验证信号：首次发现会确认 Champion 对试点价值的认同度。');
-  if (reviews['M-04'] === 'open') brief.risks[1] = '内网/私有化保留为发现会高优先级澄清项。';
-  if (reviews['M-09'] === 'prepare') brief.firstWeekPlan.push('与客户共同确认试点用户分组、培训计划和验收样本。');
+  if (reviews['M-06'] === 'signal') brief.risks.push('待验证信号：首次发现会确认 Champion 对试点价值的认同度。');
+  if (reviews['M-03'] === 'open') brief.risks[1] = '内网部署保留为发现会高优先级澄清项。';
   if (!/折扣|ExampleAssist/.test(visibleText)) brief.blockedSummary = brief.blockedSummary.filter((line) => !line.includes('商业'));
   if (!/SECRET|secret|token/i.test(visibleText)) brief.blockedSummary = brief.blockedSummary.filter((line) => !line.includes('凭据'));
   for (const edit of edits) if (brief[edit.field][edit.index] !== undefined) brief[edit.field][edit.index] = edit.after;
@@ -36,7 +35,7 @@ export function buildBrief(task: TransferTask, reviews: Record<string, ReviewCho
 
 export function createAudit(task: TransferTask, reviews: Record<string, ReviewChoice>, edits: TargetEdit[], published: boolean): AuditEvent[] {
   const events: AuditEvent[] = [
-    { actor: 'Agent', title: '读取本地交接任务', detail: `${task.memoryFiles.length} 份 Codex Local Agent Memory，${task.knowledgeFiles.length} 份本地 Knowledge。` },
+    { actor: 'Agent', title: '读取本地交接任务', detail: `${task.selectedAgent} 的 ${task.memoryFiles.length} 份记忆文件，${task.knowledgeFiles.length} 份本地知识文件。` },
     { actor: 'Agent', title: '按角色边界完成转换', detail: `${task.sourceRole} 的原话已按 ${task.targetRole} 的职责改写为交付 Brief。` },
     { actor: 'Agent', title: '敏感信息已阻断', detail: '凭据、折扣与竞品策略没有进入目标 Brief。', tone: 'block' }
   ];

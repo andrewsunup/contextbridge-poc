@@ -3,7 +3,6 @@ import express from 'express';
 import OpenAI from 'openai';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sources } from '../src/data';
 
 const app = express();
 const port = Number(process.env.PORT ?? 8787);
@@ -30,11 +29,10 @@ app.post('/api/live-transfer', async (request, response) => {
     return;
   }
 
-  const selectedIds = Array.isArray(request.body?.sourceIds)
-    ? request.body.sourceIds.filter((id: unknown): id is string => typeof id === 'string')
+  const files = Array.isArray(request.body?.files)
+    ? request.body.files.filter((file: unknown): file is { name: string; content: string } => Boolean(file) && typeof (file as { name?: unknown }).name === 'string' && typeof (file as { content?: unknown }).content === 'string')
     : [];
-  const selected = sources.filter((source) => selectedIds.includes(source.id));
-  if (!selected.length) {
+  if (!files.length) {
     response.status(400).json({ error: '至少选择一个 Context 来源。' });
     return;
   }
@@ -51,7 +49,7 @@ app.post('/api/live-transfer', async (request, response) => {
         },
         {
           role: 'user',
-          content: selected.map((source) => `## ${source.name}\n${source.content}`).join('\n\n')
+          content: files.map((file: { name: string; content: string }) => `## ${file.name}\n${file.content}`).join('\n\n')
         }
       ],
       text: { format: { type: 'json_object' } }

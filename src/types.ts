@@ -1,52 +1,15 @@
-export type ContextKind = 'agent_memory' | 'knowledge' | 'local_file' | 'online_snapshot';
-export type Action = 'transfer' | 'reframe' | 'review' | 'block' | 'discard';
-export type SessionStatus = 'not_started' | 'running' | 'draft' | 'review' | 'target_check' | 'published';
+export type RoleId = 'sales' | 'csm' | 'support' | 'fde' | 'ops';
+export type FileKind = 'agent_memory' | 'knowledge';
+export type FileOrigin = 'codex_local_agent' | 'desktop_upload' | 'demo_fixture';
+export type Action = 'transfer' | 'reframe' | 'review' | 'block';
+export type TaskStatus = 'configure' | 'ready' | 'running' | 'review' | 'target_check' | 'published';
 
-export type ContextSource = {
-  id: string;
-  name: string;
-  kind: ContextKind;
-  content: string;
-  syncedAt?: string;
-  selectedByDefault: boolean;
-};
-
-export type MemoryItem = {
-  id: string;
-  sourceId: string;
-  source: string;
-  quote: string;
-  type: string;
-  action: Action;
-  targetField?: keyof Brief;
-  targetText: string;
-  confidence: number;
-  reason: string;
-};
-
-export type Brief = {
-  overview: string[];
-  outcome: string[];
-  scope: string[];
-  stakeholders: string[];
-  dependencies: string[];
-  risks: string[];
-  firstWeekPlan: string[];
-  questions: string[];
-};
-
-export type ReviewChoice = 'confirmed' | 'signal' | 'open';
-export type TargetEdit = {
-  field: keyof Brief;
-  index: number;
-  before: string;
-  after: string;
-  reason: string;
-};
-
-export type AuditEvent = {
-  actor: 'Agent' | '交接发起人' | 'FDE';
-  title: string;
-  detail: string;
-  tone?: 'normal' | 'review' | 'block';
-};
+export type RoleProfile = { id: RoleId; label: string; shortLabel: string; type: 'source' | 'target' | 'both'; description: string; focus: string[] };
+export type LocalFile = { id: string; name: string; kind: FileKind; origin: FileOrigin; pathLabel: string; content: string; size: number };
+export type TaskDraft = { sourceRole: RoleId | ''; targetRole: RoleId | ''; memoryFiles: LocalFile[]; knowledgeFiles: LocalFile[]; prompt: string };
+export type TransferTask = Omit<TaskDraft, 'sourceRole' | 'targetRole'> & { id: string; sourceRole: RoleId; targetRole: RoleId; status: Exclude<TaskStatus, 'configure'> };
+export type MemoryItem = { id: string; sourceFileId: string; sourceFileName: string; sourceText: string; sourceLanguage: 'customer_quote' | 'sales_promise' | 'subjective_signal' | 'sensitive' | 'confirmed_fact' | 'dependency_gap'; action: Action; targetSection?: keyof Brief; targetText: string; reason: string };
+export type Brief = { scope: string[]; dependencies: string[]; risks: string[]; firstWeekPlan: string[]; blockedSummary: string[] };
+export type ReviewChoice = 'reference' | 'signal' | 'open' | 'prepare';
+export type TargetEdit = { field: keyof Brief; index: number; before: string; after: string; reason: string };
+export type AuditEvent = { actor: 'Agent' | '交接发起人' | 'FDE'; title: string; detail: string; tone?: 'review' | 'block' };

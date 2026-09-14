@@ -1,223 +1,71 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { sectionLabels, sources } from './data';
-import { buildBrief, createAudit, defaultSourceIds, readinessScore, selectedItems } from './engine';
-import type { Action, Brief, ContextKind, ReviewChoice, SessionStatus, TargetEdit } from './types';
+import { demoKnowledgeFiles, demoMemoryFiles, demoPrompt, roles, sectionLabels } from './data';
+import { buildBrief, buildItems, createAudit, isTaskValid } from './engine';
+import type { Action, Brief, FileKind, LocalFile, MemoryItem, ReviewChoice, RoleId, TargetEdit, TaskDraft, TaskStatus, TransferTask } from './types';
 import './styles.css';
 
-const actionMeta: Record<Action, { label: string; icon: string }> = {
-  transfer: { label: '直接迁移', icon: '↗' },
-  reframe: { label: '角色化重构', icon: '◇' },
-  review: { label: '需要确认', icon: '!' },
-  block: { label: '已拦截', icon: '×' },
-  discard: { label: '已忽略', icon: '–' }
-};
-
-const kindMeta: Record<ContextKind, { label: string; icon: string }> = {
-  agent_memory: { label: 'Agent 记忆', icon: '✦' },
-  knowledge: { label: '知识', icon: '◇' },
-  local_file: { label: '离线文件', icon: '▣' },
-  online_snapshot: { label: '线上快照', icon: '☁' }
-};
-
+const blankDraft: TaskDraft = { sourceRole: '', targetRole: '', memoryFiles: [], knowledgeFiles: [], prompt: '' };
+const actionMeta: Record<Action, { label: string; tone: string }> = { transfer: { label: '迁移事实', tone: 'transfer' }, reframe: { label: '角色化改写', tone: 'reframe' }, review: { label: '人工确认', tone: 'review' }, block: { label: '阻断', tone: 'block' } };
 const requiredChecks: (keyof Brief)[] = ['scope', 'risks', 'firstWeekPlan'];
+const getRole = (id: RoleId | '') => roles.find((item) => item.id === id);
+const cloneFiles = (files: LocalFile[]) => files.map((file) => ({ ...file }));
+const shortPrompt = (prompt: string) => prompt.length > 92 ? `${prompt.slice(0, 92)}…` : prompt;
 
 function App() {
-  const [page, setPage] = useState<'home' | 'workspace' | 'final'>('home');
-  const [selectedIds, setSelectedIds] = useState<string[]>(defaultSourceIds);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [status, setStatus] = useState<SessionStatus>('not_started');
-  const [activeSourceId, setActiveSourceId] = useState('CTX-01');
+  const [draft, setDraft] = useState<TaskDraft>(blankDraft);
+  const [task, setTask] = useState<TransferTask | null>(null);
+  const [screen, setScreen] = useState<'configure' | 'workspace' | 'published'>('configure');
+  const [status, setStatus] = useState<TaskStatus>('configure');
+  const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Action | 'all'>('all');
-  const [reviewOpen, setReviewOpen] = useState(false);
   const [reviews, setReviews] = useState<Record<string, ReviewChoice>>({});
-  const [targetChecks, setTargetChecks] = useState<Record<string, boolean>>({});
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [checks, setChecks] = useState<Record<string, boolean>>({});
   const [edits, setEdits] = useState<TargetEdit[]>([]);
   const [editing, setEditing] = useState<{ field: keyof Brief; index: number; text: string; reason: string } | null>(null);
   const [auditOpen, setAuditOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [published, setPublished] = useState(false);
-
-  const visibleItems = useMemo(() => selectedItems(selectedIds), [selectedIds]);
-  const filteredItems = useMemo(() => filter === 'all' ? visibleItems : visibleItems.filter((item) => item.action === filter), [visibleItems, filter]);
-  const brief = useMemo(() => buildBrief(selectedIds, reviews, edits), [selectedIds, reviews, edits]);
-  const score = readinessScore(reviews);
-  const reviewItems = visibleItems.filter((item) => item.action === 'review');
+  const memoryRef = useRef<HTMLInputElement>(null);
+  const knowledgeRef = useRef<HTMLInputElement>(null);
+  const valid = isTaskValid(draft.sourceRole, draft.targetRole, draft.memoryFiles, draft.knowledgeFiles, draft.prompt);
+  const items = useMemo(() => task ? buildItems(task) : [], [task]);
+  const reviewItems = items.filter((item) => item.action === 'review');
   const allReviewsDone = reviewItems.every((item) => reviews[item.id]);
-  const allChecksDone = requiredChecks.every((field) => targetChecks[field]);
-  const canValidate = allReviewsDone && allChecksDone;
-  const activeItem = visibleItems.find((item) => item.id === activeItemId) ?? null;
-  const audit = createAudit(reviews, edits, published);
-
-  useEffect(() => {
-    if (status !== 'running') return;
-    const timer = window.setTimeout(() => setStatus('draft'), 2300);
-    return () => window.clearTimeout(timer);
-  }, [status]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), 2800);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
-
-  const start = () => {
-    setPage('workspace');
-    setStatus('not_started');
-  };
-
-  const runTransfer = () => {
-    if (!selectedIds.length) return;
-    setStatus('running');
-    setActiveItemId(null);
-    setPublished(false);
-  };
-
-  const applySources = () => {
-    setPickerOpen(false);
-    if (status !== 'not_started') {
-      setStatus('not_started');
-      setReviews({});
-      setTargetChecks({});
-      setEdits([]);
-      setPublished(false);
-      setToast('Context 已变化，请重新生成草案');
-    }
-  };
-
-  const chooseReview = (id: string, choice: ReviewChoice) => {
-    setReviews((current) => ({ ...current, [id]: choice }));
-  };
-
-  const beginTargetCheck = () => {
-    if (!allReviewsDone) {
-      setReviewOpen(true);
-      return;
-    }
-    setStatus('target_check');
-    setToast('已交给 FDE 检查交接简报');
-  };
-
-  const saveEdit = () => {
-    if (!editing || !editing.reason.trim() || !editing.text.trim()) return;
-    const before = brief[editing.field][editing.index];
-    const edit: TargetEdit = { field: editing.field, index: editing.index, before, after: editing.text.trim(), reason: editing.reason.trim() };
-    setEdits((current) => [...current.filter((item) => !(item.field === edit.field && item.index === edit.index)), edit]);
-    setEditing(null);
-    setToast('FDE 修改已保存，并写入审计记录');
-  };
-
-  const markMissing = (field: keyof Brief) => {
-    const question = field === 'dependencies' ? '客户需确认门店运营手册中是否含有受限员工信息' : `请补齐：${sectionLabels[field]}`;
-    setEdits((current) => [...current, { field: 'questions', index: -1, before: '', after: question, reason: 'FDE 检查时发现信息缺口' }]);
-    setTargetChecks((current) => ({ ...current, [field]: true }));
-    setToast('已标记为待补齐问题');
-  };
-
-  const publish = () => {
-    if (!canValidate) return;
-    setPublished(true);
-    setStatus('published');
-    setPage('final');
-    setToast('FDE Deployment Brief v1.0 已发布');
-  };
-
-  const reset = () => {
-    setSelectedIds(defaultSourceIds);
-    setStatus('not_started');
-    setReviews({});
-    setTargetChecks({});
-    setEdits([]);
-    setActiveItemId(null);
-    setPublished(false);
-    setPage('home');
-    setToast('已恢复推荐 Demo 场景');
-  };
-
-  return <>
-    <header className="topbar">
-      <button className="brand" onClick={() => setPage('home')} aria-label="返回首页"><span className="brand-mark">C</span><span>ContextBridge</span></button>
-      <div className="topbar-right"><span className="mode-pill"><span className="mode-dot" /> Demo Replay · Mock data</span><button className="quiet-button" onClick={() => setAuditOpen(true)}>审计 {audit.length}</button></div>
-    </header>
-
-    {page === 'home' && <Home selectedCount={selectedIds.length} onStart={start} onConfigure={() => setPickerOpen(true)} />}
-    {page === 'workspace' && <main className="workspace">
-      <section className="workspace-header"><div><button className="back-link" onClick={() => setPage('home')}>← 场景</button><span className="crumb">澄澈零售 / AtlasFlow</span></div><div className={`status-pill status-${status}`}>{status === 'running' ? 'Agent 正在运行' : status === 'target_check' ? '等待 FDE 检查' : status === 'published' ? '已发布 v1.0' : allReviewsDone ? '草案：待 FDE 检查' : `草案：待确认 ${Math.max(0, reviewItems.length - Object.keys(reviews).length)} 项`}</div></section>
-      <div className="workspace-grid">
-        <SourcePanel selectedIds={selectedIds} activeId={activeSourceId} activeItem={activeItem} onSource={setActiveSourceId} onManage={() => setPickerOpen(true)} />
-        <BridgePanel status={status} items={filteredItems} activeItemId={activeItemId} filter={filter} onRun={runTransfer} onFilter={setFilter} onItem={setActiveItemId} onReview={() => setReviewOpen(true)} reviewCount={reviewItems.length - Object.keys(reviews).length} />
-        <BriefPanel brief={brief} score={score} status={status} targetChecks={targetChecks} edits={edits} onTargetCheck={beginTargetCheck} onCheck={(field) => setTargetChecks((current) => ({ ...current, [field]: true }))} onEdit={(field, index) => setEditing({ field, index, text: brief[field][index], reason: '' })} onMissing={markMissing} onPublish={publish} canValidate={canValidate} />
-      </div>
-    </main>}
-    {page === 'final' && <FinalPage brief={brief} score={score} onReset={reset} />}
-
-    {pickerOpen && <ContextPicker selectedIds={selectedIds} onToggle={(id) => setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} onClose={() => setPickerOpen(false)} onApply={applySources} onReset={() => setSelectedIds(defaultSourceIds)} />}
-    {reviewOpen && <ReviewModal items={reviewItems} reviews={reviews} onChoose={chooseReview} onClose={() => setReviewOpen(false)} onDone={() => { setReviewOpen(false); setToast('人工确认已写入交接草案'); }} />}
-    {editing && <EditModal editing={editing} setEditing={setEditing} onClose={() => setEditing(null)} onSave={saveEdit} />}
-    {auditOpen && <AuditDrawer events={audit} onClose={() => setAuditOpen(false)} />}
-    {toast && <div className="toast">✓ {toast}</div>}
-  </>;
+  const brief = useMemo(() => task ? buildBrief(task, reviews, edits) : null, [task, reviews, edits]);
+  const allChecksDone = requiredChecks.every((field) => checks[field]);
+  const activeFile = task ? [...task.memoryFiles, ...task.knowledgeFiles].find((file) => file.id === activeFileId) ?? task.memoryFiles[0] ?? task.knowledgeFiles[0] : null;
+  const activeItem = items.find((item) => item.id === activeItemId) ?? null;
+  const audit = task ? createAudit(task, reviews, edits, status === 'published') : [];
+  useEffect(() => { if (status !== 'running') return; const timer = window.setTimeout(() => { setStatus('review'); setToast('已生成 FDE 交接草案：请先处理人工边界。'); }, 1200); return () => window.clearTimeout(timer); }, [status]);
+  useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(null), 2800); return () => window.clearTimeout(timer); }, [toast]);
+  const invalidateTask = (next: TaskDraft) => { setDraft(next); if (task) { setTask(null); setStatus('configure'); setReviews({}); setChecks({}); setEdits([]); } };
+  const onField = <K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) => invalidateTask({ ...draft, [key]: value });
+  const loadDemo = () => invalidateTask({ sourceRole: 'sales', targetRole: 'fde', memoryFiles: cloneFiles(demoMemoryFiles), knowledgeFiles: cloneFiles(demoKnowledgeFiles), prompt: demoPrompt });
+  const readFiles = async (kind: FileKind, files: FileList | null) => { if (!files) return; const loaded = await Promise.all(Array.from(files).map(async (file, index): Promise<LocalFile> => ({ id: `${kind}-${file.name}-${Date.now()}-${index}`, name: file.name, kind, origin: kind === 'agent_memory' ? 'codex_local_agent' : 'desktop_upload', pathLabel: kind === 'agent_memory' ? 'Codex Local Agent · 本地已选择' : 'Local Knowledge · Desktop upload', content: await file.text(), size: file.size }))); const key = kind === 'agent_memory' ? 'memoryFiles' : 'knowledgeFiles'; invalidateTask({ ...draft, [key]: [...draft[key], ...loaded] }); setToast(`已读取 ${loaded.length} 份本地${kind === 'agent_memory' ? '记忆文件' : '知识文件'}`); };
+  const removeFile = (kind: FileKind, id: string) => { const key = kind === 'agent_memory' ? 'memoryFiles' : 'knowledgeFiles'; invalidateTask({ ...draft, [key]: draft[key].filter((file) => file.id !== id) }); };
+  const generateTask = () => { if (!valid) return; setTask({ ...draft, sourceRole: draft.sourceRole as RoleId, targetRole: draft.targetRole as RoleId, id: `handoff-${Date.now()}`, status: 'ready' }); setStatus('ready'); setToast('交接任务卡已生成。确认后再开始交接。'); };
+  const start = () => { if (!task) return; setScreen('workspace'); setStatus('running'); setActiveFileId(task.memoryFiles[0]?.id ?? task.knowledgeFiles[0]?.id ?? null); };
+  const saveEdit = () => { if (!editing || !brief || !editing.text.trim() || !editing.reason.trim()) return; const next = { field: editing.field, index: editing.index, before: brief[editing.field][editing.index], after: editing.text.trim(), reason: editing.reason.trim() }; setEdits((current) => [...current.filter((item) => !(item.field === next.field && item.index === next.index)), next]); setEditing(null); setToast('FDE 修改已保存，并保留理由与 Diff。'); };
+  const goTargetCheck = () => { if (!allReviewsDone) { setReviewOpen(true); return; } setStatus('target_check'); setToast('FDE 可以检查、修改并确认目标工作记忆。'); };
+  const publish = () => { if (!allChecksDone) return; setStatus('published'); setScreen('published'); };
+  const reset = () => { setDraft(blankDraft); setTask(null); setStatus('configure'); setScreen('configure'); setReviews({}); setChecks({}); setEdits([]); setToast(null); };
+  return <><header className="topbar"><button className="brand" onClick={() => screen !== 'workspace' && setScreen('configure')}><span className="brand-mark">C</span>ContextBridge</button><div><span className="mode-pill"><i /> Demo Replay · Local files</span>{task && <button className="quiet-button" onClick={() => setAuditOpen(true)}>审计 {audit.length}</button>}</div></header>{screen === 'configure' && <main className="composer-page"><section className="composer-intro"><span className="eyebrow">新建交接任务</span><h1>先定义交接，<br />再让 Agent 翻译。</h1><p>选择角色、加入本地记忆和知识文件，写下这次交接的要求。任务卡生成后，才可以开始执行。</p></section><TaskComposer draft={draft} valid={valid} memoryRef={memoryRef} knowledgeRef={knowledgeRef} onField={onField} onFiles={readFiles} onRemove={removeFile} onLoadDemo={loadDemo} onGenerate={generateTask} />{task && <TaskCard task={task} onEdit={() => { setTask(null); setStatus('configure'); }} onStart={start} />}</main>}{screen === 'workspace' && task && brief && <Workspace task={task} status={status} items={items} activeFile={activeFile} activeItem={activeItem} brief={brief} reviews={reviews} checks={checks} edits={edits} onFile={setActiveFileId} onItem={setActiveItemId} onReview={() => setReviewOpen(true)} onTargetCheck={goTargetCheck} onCheck={(field) => setChecks((current) => ({ ...current, [field]: true }))} onEdit={(field, index) => setEditing({ field, index, text: brief[field][index], reason: '' })} onPublish={publish} />}{screen === 'published' && task && brief && <Published task={task} brief={brief} onReset={reset} />}{reviewOpen && <ReviewModal items={reviewItems} reviews={reviews} onChoose={(id, choice) => setReviews((current) => ({ ...current, [id]: choice }))} onClose={() => setReviewOpen(false)} />}{editing && <EditModal editing={editing} setEditing={setEditing} onClose={() => setEditing(null)} onSave={saveEdit} />}{auditOpen && <AuditDrawer events={audit} onClose={() => setAuditOpen(false)} />}{toast && <div className="toast">✓ {toast}</div>}</>;
 }
 
-function Home({ selectedCount, onStart, onConfigure }: { selectedCount: number; onStart: () => void; onConfigure: () => void }) {
-  return <main className="home"><div className="home-grid"><section className="home-copy"><span className="eyebrow">跨角色 Context 转换台</span><h1>让上下文，<br />成为下一位接手者的起点。</h1><p>ContextBridge 将 Agent 记忆、知识与工作资料转换为目标角色可检查、可修改、可执行的工作记忆。</p><div className="home-actions"><button className="primary-button" onClick={onStart}>开始交接 <span>→</span></button><button className="secondary-button" onClick={onConfigure}>配置本次 Context</button></div><p className="fine-print">本地 Demo · 不连接真实 CRM 或文件库</p></section><section className="scenario-card"><div className="scenario-top"><span className="small-label">预置演示场景</span><span className="risk-dot">中等风险</span></div><h2>澄澈零售集团</h2><p>AtlasFlow 试点交接</p><div className="role-bridge"><div><span className="role-icon">S</span><strong>售前人员</strong><small>需求、承诺、关系</small></div><span className="bridge-line">→</span><div><span className="role-icon target">F</span><strong>FDE</strong><small>依赖、风险、启动计划</small></div></div><div className="scenario-stats"><span>{selectedCount} 个已选 Context</span><span>13 条受治理记忆</span><span>3 分钟流程</span></div></section></div></main>;
-}
+function TaskComposer({ draft, valid, memoryRef, knowledgeRef, onField, onFiles, onRemove, onLoadDemo, onGenerate }: { draft: TaskDraft; valid: boolean; memoryRef: React.RefObject<HTMLInputElement | null>; knowledgeRef: React.RefObject<HTMLInputElement | null>; onField: <K extends keyof TaskDraft>(key: K, value: TaskDraft[K]) => void; onFiles: (kind: FileKind, files: FileList | null) => void; onRemove: (kind: FileKind, id: string) => void; onLoadDemo: () => void; onGenerate: () => void }) { const targets = roles.filter((item) => item.id !== draft.sourceRole && (item.type === 'target' || item.type === 'both')); return <section className="composer"><div className="composer-head"><div><span className="step">01 · TASK CONFIGURATION</span><h2>配置一次交接</h2></div><button className="text-button" onClick={onLoadDemo}>载入桌面 Demo 文件</button></div><div className="role-grid"><RoleSelect label="源用户" value={draft.sourceRole} choices={roles.filter((item) => item.type === 'source' || item.type === 'both')} onChange={(value) => onField('sourceRole', value as RoleId)} /><div className="role-arrow">→</div><RoleSelect label="目标用户" value={draft.targetRole} choices={targets} onChange={(value) => onField('targetRole', value as RoleId)} /></div><div className="file-grid"><FileBucket title="01 · Local Agent Memory" description="Codex Local Agent · 选择本地记忆文件" files={draft.memoryFiles} kind="agent_memory" inputRef={memoryRef} onPick={() => memoryRef.current?.click()} onFiles={onFiles} onRemove={onRemove} /><FileBucket title="02 · Knowledge Files" description="从本地电脑添加可用于交接的知识资料" files={draft.knowledgeFiles} kind="knowledge" inputRef={knowledgeRef} onPick={() => knowledgeRef.current?.click()} onFiles={onFiles} onRemove={onRemove} /></div><label className="prompt-box"><span>03 · 转换要求 <em>必填</em></span><textarea maxLength={500} value={draft.prompt} onChange={(event) => onField('prompt', event.target.value)} placeholder="例如：把售前叙述转换为 FDE 可启动的交付 Brief；区分确认事实、待确认项、风险和敏感信息。" /><small>{draft.prompt.length}/500 · 此要求会写入任务卡与审计记录</small></label><div className="composer-footer"><p>{valid ? '配置完整。生成任务卡后，才可开始交接。' : '请选择不同角色、至少 1 份记忆、1 份知识，并写下转换要求。'}</p><button className="primary-button" disabled={!valid} onClick={onGenerate}>生成交接任务卡 <span>→</span></button></div></section>; }
+function RoleSelect({ label, value, choices, onChange }: { label: string; value: string; choices: typeof roles; onChange: (value: string) => void }) { const profile = getRole(value as RoleId); return <label className="role-select"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="">请选择角色</option>{choices.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select><small>{profile ? profile.description : '选择后显示该角色的工作语言与重点。'}</small></label>; }
+function FileBucket({ title, description, files, kind, inputRef, onPick, onFiles, onRemove }: { title: string; description: string; files: LocalFile[]; kind: FileKind; inputRef: React.RefObject<HTMLInputElement | null>; onPick: () => void; onFiles: (kind: FileKind, files: FileList | null) => void; onRemove: (kind: FileKind, id: string) => void }) { return <section className="file-bucket"><div><span className="step">{title}</span><p>{description}</p></div><input ref={inputRef} type="file" multiple accept=".md,.txt,.json" onChange={(event) => onFiles(kind, event.target.files)} /><button className="secondary-button" onClick={onPick}>{kind === 'agent_memory' ? '选择记忆文件' : '添加知识文件'}</button><div className="selected-files">{files.length ? files.map((file) => <div className="selected-file" key={file.id}><span>{kind === 'agent_memory' ? '✦' : '▣'}</span><div><strong>{file.name}</strong><small>{file.pathLabel} · {(file.size / 1024).toFixed(1)} KB</small></div><button onClick={() => onRemove(kind, file.id)} aria-label={`移除 ${file.name}`}>×</button></div>) : <p className="empty-file">尚未选择文件</p>}</div></section>; }
+function TaskCard({ task, onEdit, onStart }: { task: TransferTask; onEdit: () => void; onStart: () => void }) { return <section className="task-card"><div><span className="eyebrow">READY TO RUN</span><h2>待执行的交接任务</h2><div className="task-route"><strong>{getRole(task.sourceRole)?.label}</strong><span>→</span><strong>{getRole(task.targetRole)?.label}</strong></div><p>澄澈零售集团 / AtlasFlow 试点</p><div className="task-meta"><span>{task.memoryFiles.length} 份 Agent Memory</span><span>{task.knowledgeFiles.length} 份 Knowledge</span><span>本地文件</span></div><blockquote>{shortPrompt(task.prompt)}</blockquote></div><div className="task-actions"><button className="secondary-button" onClick={onEdit}>编辑配置</button><button className="primary-button" onClick={onStart}>开始交接 <span>→</span></button></div></section>; }
 
-function ContextPicker({ selectedIds, onToggle, onClose, onApply, onReset }: { selectedIds: string[]; onToggle: (id: string) => void; onClose: () => void; onApply: () => void; onReset: () => void }) {
-  const [kind, setKind] = useState<ContextKind | 'all'>('all');
-  const shown = kind === 'all' ? sources : sources.filter((source) => source.kind === kind);
-  return <div className="overlay"><section className="drawer context-drawer"><div className="modal-header"><div><span className="eyebrow">CONTEXT PICKER</span><h2>本次转换的 Context</h2></div><button className="icon-button" onClick={onClose}>×</button></div><p className="modal-intro">选择本次交接需要的上下文。线上资料仅为本地同步快照，Demo 不会访问外部系统。</p><div className="filter-row"><button className={kind === 'all' ? 'filter active' : 'filter'} onClick={() => setKind('all')}>全部</button>{(Object.keys(kindMeta) as ContextKind[]).map((key) => <button key={key} className={kind === key ? 'filter active' : 'filter'} onClick={() => setKind(key)}>{kindMeta[key].label}</button>)}</div><div className="source-list">{shown.map((source) => <label className={`source-option ${selectedIds.includes(source.id) ? 'selected' : ''}`} key={source.id}><input type="checkbox" checked={selectedIds.includes(source.id)} onChange={() => onToggle(source.id)} /><span className="source-icon">{kindMeta[source.kind].icon}</span><span className="source-option-copy"><strong>{source.name}</strong><small>{kindMeta[source.kind].label}{source.syncedAt ? ` · 本地快照 ${source.syncedAt}` : ''}</small></span>{source.id === 'CTX-08' && <span className="sensitive-tag">商业敏感</span>}</label>)}</div><div className="drawer-footer"><button className="text-button" onClick={onReset}>恢复推荐组合</button><button className="primary-button" disabled={!selectedIds.length} onClick={onApply}>应用 {selectedIds.length} 个来源</button></div></section></div>;
-}
+function Workspace({ task, status, items, activeFile, activeItem, brief, reviews, checks, edits, onFile, onItem, onReview, onTargetCheck, onCheck, onEdit, onPublish }: { task: TransferTask; status: TaskStatus; items: MemoryItem[]; activeFile: LocalFile | null; activeItem: MemoryItem | null; brief: Brief; reviews: Record<string, ReviewChoice>; checks: Record<string, boolean>; edits: TargetEdit[]; onFile: (id: string) => void; onItem: (id: string) => void; onReview: () => void; onTargetCheck: () => void; onCheck: (field: keyof Brief) => void; onEdit: (field: keyof Brief, index: number) => void; onPublish: () => void }) { const checking = status === 'target_check'; const allChecksDone = requiredChecks.every((field) => checks[field]); const allFiles = [...task.memoryFiles, ...task.knowledgeFiles]; return <main className="workspace"><div className="workspace-head"><div><button className="back-link" onClick={() => window.location.reload()}>← 新建任务</button><span>任务快照 · {getRole(task.sourceRole)?.label} → {getRole(task.targetRole)?.label}</span></div><div className={`status-pill ${status}`}>{status === 'running' ? '正在转换本地 Context' : status === 'review' ? `待人工确认 ${items.filter((item) => item.action === 'review').length - Object.keys(reviews).length} 项` : checking ? 'FDE 正在检查' : '交接结果'}</div></div><div className="contrast-banner"><span>交接前：{getRole(task.sourceRole)?.label} 的工作语言</span><i>→</i><span>交接后：{getRole(task.targetRole)?.label} 的行动语言</span></div><div className="workspace-grid"><SourcePanel files={allFiles} activeFile={activeFile} activeItem={activeItem} onFile={onFile} /><BridgePanel status={status} items={items} activeItem={activeItem} onItem={onItem} onReview={onReview} /><BriefPanel task={task} status={status} brief={brief} checks={checks} edits={edits} onTargetCheck={onTargetCheck} onCheck={onCheck} onEdit={onEdit} onPublish={onPublish} allChecksDone={allChecksDone} /></div></main>; }
+function SourcePanel({ files, activeFile, activeItem, onFile }: { files: LocalFile[]; activeFile: LocalFile | null; activeItem: MemoryItem | null; onFile: (id: string) => void }) { return <section className="panel source-panel"><div className="panel-head"><span className="step">交接前 · SOURCE</span><h2>售前怎么说</h2><p>原始本地记忆保留机会、感受、承诺和内部噪声。</p></div><div className="file-tabs">{files.map((file) => <button key={file.id} onClick={() => onFile(file.id)} className={activeFile?.id === file.id ? 'active' : ''}>{file.kind === 'agent_memory' ? '✦' : '▣'} {file.name}</button>)}</div>{activeFile && <div className="raw-file"><div className="file-origin">{activeFile.pathLabel}</div><pre>{activeFile.content}</pre></div>}{activeItem && <div className="source-focus"><span>当前证据</span><strong>“{activeItem.sourceText}”</strong></div>}</section>; }
+function BridgePanel({ status, items, activeItem, onItem, onReview }: { status: TaskStatus; items: MemoryItem[]; activeItem: MemoryItem | null; onItem: (id: string) => void; onReview: () => void }) { const counts = (action: Action) => items.filter((item) => item.action === action).length; return <section className="panel bridge-panel"><div className="panel-head"><span className="step">受控翻译 · BRIDGE</span><h2>{status === 'running' ? '正在读取并判断…' : '每条信息如何处理'}</h2><p>不是摘要：每句话都要决定是否可迁移、如何改写、是否需人确认。</p></div>{status === 'running' ? <div className="working-state"><div className="pulse" /><strong>读取本地文件</strong><span>按角色边界检查承诺、判断和敏感信息</span></div> : <><div className="action-summary"><span>{counts('transfer')} 迁移</span><span>{counts('reframe')} 改写</span><span>{counts('review')} 人审</span><span>{counts('block')} 阻断</span></div><div className="decision-list">{items.map((item) => <button key={item.id} onClick={() => onItem(item.id)} className={`decision ${actionMeta[item.action].tone} ${activeItem?.id === item.id ? 'active' : ''}`}><span>{item.action === 'transfer' ? '↗' : item.action === 'reframe' ? '◇' : item.action === 'review' ? '!' : '×'}</span><div><small>{actionMeta[item.action].label} · {item.sourceFileName}</small><strong>{item.sourceText}</strong></div></button>)}</div>{activeItem && <div className="decision-detail"><span>目标角色表达</span><strong>{activeItem.action === 'block' ? '已阻断，不进入目标 Brief。' : activeItem.targetText}</strong><p>{activeItem.reason}</p></div>}<button className="review-button" onClick={onReview}>处理人工确认（{counts('review')} 项）</button></>}</section>; }
+function BriefPanel({ task, status, brief, checks, edits, onTargetCheck, onCheck, onEdit, onPublish, allChecksDone }: { task: TransferTask; status: TaskStatus; brief: Brief; checks: Record<string, boolean>; edits: TargetEdit[]; onTargetCheck: () => void; onCheck: (field: keyof Brief) => void; onEdit: (field: keyof Brief, index: number) => void; onPublish: () => void; allChecksDone: boolean }) { const visible = status !== 'running'; const checking = status === 'target_check'; return <section className="panel brief-panel"><div className="panel-head"><span className="step">交接后 · TARGET</span><h2>{getRole(task.targetRole)?.label} 怎么接手</h2><p>把售前的叙述变成范围、依赖、风险和首周动作。</p></div>{visible ? <><div className="brief-content">{(Object.keys(brief) as (keyof Brief)[]).map((field) => <section className="brief-section" key={field}><div><h3>{sectionLabels[field]}</h3>{checking && requiredChecks.includes(field) && <small className={checks[field] ? 'checked' : 'unchecked'}>{checks[field] ? '已检查' : '待检查'}</small>}</div><ul>{brief[field].map((line, index) => <li className={edits.some((edit) => edit.field === field && edit.index === index) ? 'edited' : ''} key={`${field}-${index}`}><span>{line}</span>{checking && field !== 'blockedSummary' && <button onClick={() => onEdit(field, index)}>编辑</button>}</li>)}</ul>{checking && requiredChecks.includes(field) && <button className="confirm-link" onClick={() => onCheck(field)}>✓ 确认本区块</button>}</section>)}</div>{!checking ? <button className="primary-button full" onClick={onTargetCheck}>交给 {getRole(task.targetRole)?.label} 检查 <span>→</span></button> : <div className="publish-box"><span>{allChecksDone ? '三项接手检查已完成' : '请完成范围、风险、首周动作检查'}</span><button className="primary-button" disabled={!allChecksDone} onClick={onPublish}>发布交接包</button></div>}</> : <div className="brief-empty">等待 Bridge 完成本地 Context 转换。</div>}</section>; }
+function ReviewModal({ items, reviews, onChoose, onClose }: { items: MemoryItem[]; reviews: Record<string, ReviewChoice>; onChoose: (id: string, choice: ReviewChoice) => void; onClose: () => void }) { const current = items.find((item) => !reviews[item.id]) ?? items[0]; if (!current) return null; const options: { value: ReviewChoice; label: string }[] = current.id === 'M-02' ? [{ value: 'reference', label: '作为当前参考，不承诺上线' }, { value: 'open', label: '继续标记为待确认' }] : current.id === 'M-03' ? [{ value: 'signal', label: '转为待验证信号' }, { value: 'open', label: '不迁移该判断' }] : current.id === 'M-09' ? [{ value: 'prepare', label: '写入首周验收准备项' }, { value: 'open', label: '继续保留为待确认' }] : [{ value: 'open', label: '保留为技术发现会澄清项' }, { value: 'reference', label: '作为硬约束候选' }]; const done = items.every((item) => reviews[item.id]); return <div className="overlay"><section className="modal review-modal"><div className="modal-head"><div><span className="eyebrow">HUMAN BOUNDARY</span><h2>这一步不让 Agent 自动决定</h2></div><button onClick={onClose}>×</button></div><div className="review-progress">已处理 {Object.keys(reviews).length}/{items.length}</div><blockquote>“{current.sourceText}”</blockquote><p>{current.reason}</p><div className="review-output"><small>若迁移给目标角色：</small>{current.targetText}</div><div className="choice-list">{options.map((option) => <button onClick={() => onChoose(current.id, option.value)} key={option.value}>{option.label}<span>→</span></button>)}</div><div className="modal-footer"><button className="secondary-button" onClick={onClose}>稍后处理</button><button className="primary-button" disabled={!done} onClick={onClose}>写入交接草案</button></div></section></div>; }
 
-function SourcePanel({ selectedIds, activeId, activeItem, onSource, onManage }: { selectedIds: string[]; activeId: string; activeItem: ReturnType<typeof selectedItems>[number] | null; onSource: (id: string) => void; onManage: () => void }) {
-  const selected = sources.filter((source) => selectedIds.includes(source.id));
-  const active = selected.find((source) => source.id === activeId) ?? selected[0];
-  if (!active) return <section className="panel source-panel"><p>请至少选择一个 Context。</p></section>;
-  return <section className="panel source-panel"><div className="panel-head"><div><span className="step">01 · 源上下文</span><h2>售前人员</h2><p>需求、承诺、关系与工作记忆</p></div><button className="mini-button" onClick={onManage}>{selected.length} 个 Context</button></div><div className="source-tabs">{selected.map((source) => <button key={source.id} className={active.id === source.id ? 'tab active' : 'tab'} onClick={() => onSource(source.id)}>{kindMeta[source.kind].icon} {source.name.replace('.md', '')}</button>)}</div><div className="source-document"><div className="document-meta"><span>{kindMeta[active.kind].label}</span>{active.syncedAt && <span>同步于 {active.syncedAt}</span>}</div><pre>{active.content}</pre></div>{activeItem && <div className="evidence-callout"><span>证据定位</span><strong>“{activeItem.quote}”</strong><p>{activeItem.source}</p></div>}</section>;
-}
-
-function BridgePanel({ status, items, activeItemId, filter, onRun, onFilter, onItem, onReview, reviewCount }: { status: SessionStatus; items: ReturnType<typeof selectedItems>; activeItemId: string | null; filter: Action | 'all'; onRun: () => void; onFilter: (value: Action | 'all') => void; onItem: (id: string) => void; onReview: () => void; reviewCount: number }) {
-  const running = status === 'running';
-  const hasResult = status !== 'not_started' && status !== 'running';
-  return <section className="panel bridge-panel"><div className="panel-head bridge-head"><div><span className="step">02 · CONTEXTBRIDGE</span><h2>受控转换工作流</h2><p>提取、治理、映射、组装</p></div>{hasResult && <button className="mini-button warning" onClick={onReview}>待确认 {reviewCount} 项</button>}</div><button className="run-button" disabled={running} onClick={onRun}>{running ? '正在生成交接草案…' : hasResult ? '重新生成草案' : '生成 FDE 交接草案'} <span>→</span></button><Pipeline running={running} complete={hasResult} />{hasResult ? <><div className="stat-strip">{(['all', 'transfer', 'reframe', 'review', 'block'] as const).map((key) => { const count = key === 'all' ? items.length : items.filter((item) => item.action === key).length; return <button key={key} onClick={() => onFilter(key)} className={filter === key ? 'stat active' : 'stat'}><strong>{count}</strong><span>{key === 'all' ? '受治理记忆' : actionMeta[key].label}</span></button>; })}</div><div className="memory-list">{items.filter((item) => filter === 'all' || item.action === filter).map((item) => <button className={`memory-card ${activeItemId === item.id ? 'active' : ''} ${item.action}`} key={item.id} onClick={() => onItem(item.id)}><span className="memory-action">{actionMeta[item.action].icon}</span><span className="memory-copy"><span className="memory-title">{item.type}</span><strong>{item.quote}</strong><small>{actionMeta[item.action].label} · {item.confidence}%</small></span></button>)}</div></> : <div className="bridge-empty"><span>◇</span><p>从所选 Context 中提取记忆，并按目标角色规则进行转换。</p></div>}</section>;
-}
-
-function Pipeline({ running, complete }: { running: boolean; complete: boolean }) {
-  const steps = ['读取 Context', '提取记忆', '风险检查', '角色映射', '生成简报'];
-  return <div className="pipeline">{steps.map((step, index) => <div className={`pipeline-step ${running ? 'running' : complete ? 'done' : ''}`} style={{ transitionDelay: `${index * 100}ms` }} key={step}><span>{complete ? '✓' : index + 1}</span><small>{step}</small></div>)}</div>;
-}
-
-function BriefPanel({ brief, score, status, targetChecks, edits, onTargetCheck, onCheck, onEdit, onMissing, onPublish, canValidate }: { brief: Brief; score: number; status: SessionStatus; targetChecks: Record<string, boolean>; edits: TargetEdit[]; onTargetCheck: () => void; onCheck: (field: keyof Brief) => void; onEdit: (field: keyof Brief, index: number) => void; onMissing: (field: keyof Brief) => void; onPublish: () => void; canValidate: boolean }) {
-  const hasResult = status !== 'not_started' && status !== 'running';
-  const checking = status === 'target_check' || status === 'published';
-  return <section className="panel brief-panel"><div className="panel-head"><div><span className="step">03 · 目标工作记忆</span><h2>FDE Deployment Brief</h2><p>{checking ? 'FDE 正在检查与修订' : hasResult ? '草案等待人工确认' : '等待 Agent 生成草案'}</p></div><div className="score"><strong>{hasResult ? score : 0}</strong><small>就绪度</small></div></div>{hasResult ? <><div className="brief-tabs"><span className="active">交接简报</span><span>来源可追溯</span></div><div className="brief-content">{(Object.keys(brief) as (keyof Brief)[]).filter((field) => ['overview', 'outcome', 'scope', 'stakeholders', 'dependencies', 'risks', 'firstWeekPlan', 'questions'].includes(field)).map((field) => <div className="brief-section" key={field}><div className="brief-section-head"><h3>{sectionLabels[field]}</h3>{checking && requiredChecks.includes(field) && <span className={targetChecks[field] ? 'check-badge done' : 'check-badge'}>{targetChecks[field] ? '已检查' : '待检查'}</span>}</div><ul>{brief[field].map((line, index) => { const edited = edits.some((edit) => edit.field === field && edit.index === index); return <li key={`${field}-${index}`} className={edited ? 'edited' : ''}><span>{line}</span>{checking && <button className="edit-link" onClick={() => onEdit(field, index)}>编辑</button>}{edited && <small>FDE 已编辑</small>}</li>; })}</ul>{checking && requiredChecks.includes(field) && <div className="check-actions"><button className="confirm-link" onClick={() => onCheck(field)}>✓ 确认本区块</button><button className="confirm-link" onClick={() => onMissing(field)}>+ 标记缺失</button></div>}</div>)}</div>{!checking ? <button className="primary-button full" onClick={onTargetCheck}>交给 FDE 检查 <span>→</span></button> : <div className="validation-box"><div><span className="small-label">FDE 接手检查</span><strong>{canValidate ? '4 项验证已准备就绪' : '请完成范围、风险与首周计划检查'}</strong></div><button className="primary-button" disabled={!canValidate} onClick={onPublish}>运行检查并发布</button></div>}</> : <div className="brief-empty"><span>↳</span><p>转换后的交付上下文将在这里生成，并由 FDE 进行最终检查。</p></div>}</section>;
-}
-
-function ReviewModal({ items, reviews, onChoose, onClose, onDone }: { items: ReturnType<typeof selectedItems>; reviews: Record<string, ReviewChoice>; onChoose: (id: string, choice: ReviewChoice) => void; onClose: () => void; onDone: () => void }) {
-  const current = items.find((item) => !reviews[item.id]) ?? items[0];
-  const done = items.every((item) => reviews[item.id]);
-  if (!current) return null;
-  const options: { value: ReviewChoice; label: string }[] = current.id === 'M-03' ? [{ value: 'confirmed', label: '以 10/13 试点为当前参考' }, { value: 'open', label: '继续保留为待确认' }] : current.id === 'M-04' ? [{ value: 'signal', label: '转为待验证信号' }, { value: 'open', label: '不迁移该判断' }] : current.id === 'M-13' ? [{ value: 'confirmed', label: '写入首周验收准备项' }, { value: 'open', label: '继续保留为待确认' }] : [{ value: 'open', label: '保留为发现会澄清项' }, { value: 'confirmed', label: '作为硬性约束候选' }];
-  return <div className="overlay"><section className="modal review-modal"><div className="modal-header"><div><span className="eyebrow">HUMAN REVIEW</span><h2>需要人工确认</h2></div><button className="icon-button" onClick={onClose}>×</button></div><div className="review-progress"><span>已处理 {Object.keys(reviews).length}/{items.length}</span><div><i style={{ width: `${(Object.keys(reviews).length / items.length) * 100}%` }} /></div></div><div className="review-card"><span className="action-label review">需要确认</span><h3>{current.type}</h3><blockquote>“{current.quote}”</blockquote><p className="reason">{current.reason}</p><div className="review-output"><small>转换草案</small><p>{current.targetText}</p></div><div className="choice-list">{options.map((option) => <button key={option.value} className={reviews[current.id] === option.value ? 'choice selected' : 'choice'} onClick={() => onChoose(current.id, option.value)}>{option.label}<span>→</span></button>)}</div></div><div className="modal-footer"><button className="secondary-button" onClick={onClose}>稍后处理</button><button className="primary-button" disabled={!done} onClick={onDone}>写入交接草案</button></div></section></div>;
-}
-
-function EditModal({ editing, setEditing, onClose, onSave }: { editing: { field: keyof Brief; index: number; text: string; reason: string }; setEditing: (value: { field: keyof Brief; index: number; text: string; reason: string } | null) => void; onClose: () => void; onSave: () => void }) {
-  return <div className="overlay"><section className="modal edit-modal"><div className="modal-header"><div><span className="eyebrow">FDE TARGET CHECK</span><h2>修改目标记忆</h2></div><button className="icon-button" onClick={onClose}>×</button></div><label>目标字段<textarea value={editing.text} onChange={(event) => setEditing({ ...editing, text: event.target.value })} /></label><label>修改理由（必填）<input maxLength={80} value={editing.reason} onChange={(event) => setEditing({ ...editing, reason: event.target.value })} placeholder="例如：需要先确认客户技术接口人与三方职责" /></label><p className="fine-print">保存后将保留 Agent 草案与 FDE 修改 Diff。</p><div className="modal-footer"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={!editing.text.trim() || !editing.reason.trim()} onClick={onSave}>保存修改</button></div></section></div>;
-}
-
-function AuditDrawer({ events, onClose }: { events: ReturnType<typeof createAudit>; onClose: () => void }) {
-  return <div className="overlay overlay-right"><section className="drawer audit-drawer"><div className="modal-header"><div><span className="eyebrow">AUDIT TRAIL</span><h2>交接审计记录</h2></div><button className="icon-button" onClick={onClose}>×</button></div><div className="audit-list">{events.map((event, index) => <div className={`audit-event ${event.tone ?? ''}`} key={`${event.title}-${index}`}><span className="audit-dot" /><div><small>{event.actor} · 刚刚</small><strong>{event.title}</strong><p>{event.detail}</p></div></div>)}</div></section></div>;
-}
-
-function FinalPage({ brief, score, onReset }: { brief: Brief; score: number; onReset: () => void }) {
-  const questions = [
-    ['客户要达成的业务结果是什么？', brief.outcome[0]],
-    ['第一个必须确认的技术依赖是什么？', brief.dependencies[0]],
-    ['FDE 不应向客户承诺什么？', '具体上线日期与私有化部署方案。'],
-    ['首周应做什么？', brief.firstWeekPlan[0]]
-  ];
-  return <main className="final-page"><section className="publish-card"><div className="success-mark">✓</div><span className="eyebrow">FDE HANDOFF READY</span><h1>交接包已发布</h1><p>FDE Deployment Brief v1.0 已完成审核、修订与接手验证。</p><div className="final-score"><strong>{score}</strong><span>接手就绪度<br /><small>可启动技术发现会，不等于可承诺上线</small></span></div><div className="validation-list">{questions.map(([question, answer]) => <div key={question}><span>✓</span><p><strong>{question}</strong>{answer}</p></div>)}</div><div className="publish-actions"><button className="primary-button" onClick={onReset}>重新演示</button><button className="secondary-button" onClick={() => window.print()}>打印交接简报</button></div></section></main>;
-}
+function EditModal({ editing, setEditing, onClose, onSave }: { editing: { field: keyof Brief; index: number; text: string; reason: string }; setEditing: (value: { field: keyof Brief; index: number; text: string; reason: string } | null) => void; onClose: () => void; onSave: () => void }) { return <div className="overlay"><section className="modal edit-modal"><div className="modal-head"><div><span className="eyebrow">FDE TARGET CHECK</span><h2>修订目标工作记忆</h2></div><button onClick={onClose}>×</button></div><label>FDE 修改后的内容<textarea value={editing.text} onChange={(event) => setEditing({ ...editing, text: event.target.value })} /></label><label>修改理由（必填）<input value={editing.reason} onChange={(event) => setEditing({ ...editing, reason: event.target.value })} placeholder="例如：上线日期必须等待技术发现会评估" /></label><p>保存后会保留 Agent 草案、FDE 修改和理由。</p><div className="modal-footer"><button className="secondary-button" onClick={onClose}>取消</button><button className="primary-button" disabled={!editing.text.trim() || !editing.reason.trim()} onClick={onSave}>保存修改</button></div></section></div>; }
+function AuditDrawer({ events, onClose }: { events: ReturnType<typeof createAudit>; onClose: () => void }) { return <div className="overlay right"><section className="drawer"><div className="modal-head"><div><span className="eyebrow">AUDIT TRAIL</span><h2>交接记录</h2></div><button onClick={onClose}>×</button></div>{events.map((event, index) => <div className={`audit-event ${event.tone ?? ''}`} key={`${event.title}-${index}`}><i /><div><small>{event.actor}</small><strong>{event.title}</strong><p>{event.detail}</p></div></div>)}</section></div>; }
+function Published({ task, brief, onReset }: { task: TransferTask; brief: Brief; onReset: () => void }) { return <main className="published-page"><section className="published-card"><div className="success">✓</div><span className="eyebrow">HANDOFF READY</span><h1>交接包已发布</h1><p>{getRole(task.targetRole)?.label} 已审核并接手该任务快照。</p><div className="publish-note">可启动技术发现会，不等于可承诺上线。</div><div className="validation-list"><p><strong>客户要达成什么？</strong>{brief.scope[1] ?? brief.scope[0]}</p><p><strong>第一个技术依赖？</strong>{brief.dependencies[0]}</p><p><strong>不能承诺什么？</strong>具体上线日期与私有化交付方案。</p><p><strong>首周第一件事？</strong>{brief.firstWeekPlan[0]}</p></div><button className="primary-button" onClick={onReset}>新建另一项交接</button></section></main>; }
 
 createRoot(document.getElementById('root')!).render(<App />);
